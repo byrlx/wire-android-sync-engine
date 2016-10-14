@@ -32,6 +32,7 @@ import org.json.JSONObject
 import org.threeten.bp.Instant
 
 import scala.concurrent.Future
+import scala.util.Success
 import scala.util.control.NonFatal
 
 class EventsClient(netClient: ZNetClient)  {
@@ -76,11 +77,11 @@ class EventsClient(netClient: ZNetClient)  {
 case class PushNotification(id: Uid, events: Seq[Event], transient: Boolean = false) {
 
   /**
-    * Check if notification contains events intended for current client. In some (rare) cases it may happen that
+    * Get notification events intended for current client. In some (rare) cases it may happen that
     * BE sends us notifications intended for different device, we can verify that by checking recipient field.
     * Unencrypted events are always considered to belong to us.
     */
-  def hasEventForClient(clientId: ClientId) = events.exists {
+  def eventsForClient(clientId: ClientId) = events.filter {
     case ev: OtrEvent => clientId == ev.recipient
     case _ => true
   }

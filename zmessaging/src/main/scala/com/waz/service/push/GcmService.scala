@@ -164,7 +164,7 @@ class GcmService(accountId: AccountId, gcmGlobalService: GcmGlobalService, keyVa
     lifecycle.lifecycleState.head flatMap {
       case LifecycleState.UiActive | LifecycleState.Active => Future.successful(()) // no need to process GCM when ui is active
       case _ =>
-        verbose(s"handleNotification($n")
+        verbose(s"addNotification: $n")
         // call state events can not be directly dispatched like the other events because they might be stale
         syncCallStateForConversations(n.events.collect { case e: CallStateEvent => e }.map(_.withCurrentLocalTime()))
         Future.successful(notificationsToProcess ! true)
