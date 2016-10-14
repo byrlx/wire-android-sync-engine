@@ -63,7 +63,7 @@ class NotificationService(context: Context, selfUserId: UserId, messages: Messag
     data <- storage.notifications.map(_.values.toIndexedSeq.sorted)
     uiVisibleTime <- lastUiVisibleTime.signal
   } yield {
-    verbose(s"Retrieved from notifications storage: ${fCol(data)}")
+    verbose(s"Retrieved from notifications storage: ${fCol(data)}, lastUiVisibleTime: $uiVisibleTime")
     if (data.forall(_.localTime.isBefore(uiVisibleTime))) Seq.empty[NotificationData] // no new messages, don't show anything
     else data
   }).flatMap {

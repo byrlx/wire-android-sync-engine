@@ -48,10 +48,9 @@ class PushService(context: Context, keyValue: KeyValueStorage, client: EventsCli
 
   webSocket.connected { signals.pushConnected ! _ }
 
-  client.onNotificationsPageLoaded.on(dispatcher) { notifications =>
-    onPushNotifications(notifications.notifications, wereFetched = true)
-
-    if (notifications.lastIdWasFound) debug(s"Loaded page of ${notifications.notifications.size} notifications")
+  client.onNotificationsPageLoaded.on(dispatcher) { resp =>
+    onPushNotifications(resp.notifications)
+    if (resp.lastIdWasFound) debug(s"Loaded page of ${resp.notifications.size} notifications")
     else {
       info(s"server couldn't provide all missing notifications, will schedule slow sync, after processing available events")
       signals.onSlowSyncNeeded ! SlowSyncRequest(System.currentTimeMillis(), lostHistory = true)
@@ -73,7 +72,7 @@ class PushService(context: Context, keyValue: KeyValueStorage, client: EventsCli
           content match {
             case NotificationsResponse(notifications @ _*) =>
               debug(s"got notifications from data: $content")
-              onPushNotifications(notifications, wereFetched = false)
+              onPushNotifications(notifications)
             case resp =>
               error(s"unexpected push response: $resp")
           }
@@ -96,21 +95,23 @@ class PushService(context: Context, keyValue: KeyValueStorage, client: EventsCli
       connectedPushPromise = Promise()
   }
 
-  def onPushNotification(n: PushNotification) = onPushNotifications(Seq(n), wereFetched = false) //used in tests
+  def onPushNotification(n: PushNotification) = onPushNotifications(Seq(n)) //used in tests
 
-  private def onPushNotifications(ns: Seq[PushNotification], wereFetched: Boolean): Unit = if (ns.nonEmpty) {
+  private def onPushNotifications(ns: Seq[PushNotification]): Unit = if (ns.nonEmpty) {
     debug(s"gotPushNotifications: $ns")
     ns.lift(ns.lastIndexWhere(!_.transient)).foreach { n =>
-      lastNotification.updateLastIdOnNotification(n.id, processNotifications(ns, wereFetched))
+      lastNotification.updateLastIdOnNotification(n.id, processNotifications(ns))
     }
   }
 
-  private def processNotifications(notifications: Seq[PushNotification], wereFetched: Boolean) = wakeLock { pipeline {
+  private def processNotifications(notifications: Seq[PushNotification]) = wakeLock { pipeline {
     returning(notifications.flatMap(_.eventsForClient(clientId))) {
       _.foreach { ev =>
         verbose(s"event: $ev")
-        if (wereFetched) ev.notificationsFetchTime = new Date
-        else ev.localTime = new util.Date()
+        returning(new Date) { d =>
+          ev.notificationsFetchTime = d
+          ev.localTime = d
+        }
       }
     }
   }.map {

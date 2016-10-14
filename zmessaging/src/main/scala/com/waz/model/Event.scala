@@ -41,9 +41,8 @@ sealed trait Event {
   import Event._
   val id: Uid
 
-  // local time when this event was received, will be set only for fresh push channel events
+  //FIXME do we still need this separation?
   var localTime: Date = UnknownDateTime
-  // local time when /notifications were being fetched, will be set only if this event is received from history /notifications
   var notificationsFetchTime: Date = UnknownDateTime
 
   def withCurrentLocalTime(): this.type = {
