@@ -52,7 +52,6 @@ class PushService(context: Context, keyValue: KeyValueStorage, client: EventsCli
     //      maybe this would be enough for some conversations and we would not need to sync so much
     processHistoryEvents(notifications.notifications, new Date)
 
-    gcmService.notificationsToProcess ! false //Finished retrieving notifications, allow websocket to close
     if (notifications.lastIdWasFound) debug("got missing notifications, great")
     else {
       info(s"server couldn't provide all missing notifications, will schedule slow sync, after processing available events")
@@ -128,17 +127,17 @@ class PushService(context: Context, keyValue: KeyValueStorage, client: EventsCli
     }
 
   private def loadNotifications(lastId: Option[Uid]): Future[Unit] =
-    client.loadNotifications(lastId, clientId, pageSize = EventsClient.PageSize) map {
+    client.loadNotifications(lastId, clientId, pageSize = EventsClient.PageSize).flatMap {
       case Left(error) =>
         warn(s"/notifications failed with error: $error, will schedule slow sync")
-        signals.onSlowSyncNeeded ! SlowSyncRequest(System.currentTimeMillis())
-
+        Future.successful(signals.onSlowSyncNeeded ! SlowSyncRequest(System.currentTimeMillis()))
       case Right(updatedLastId) =>
         verbose(s"notifications loaded, last id: $updatedLastId")
         // update last notification id once all events are processed
         // (the results themselves will be handled by the event stream)
         lastNotification.updateLastIdOnHistorySynced(updatedLastId.orElse(lastId))
-    }
+    }.andThen { case _ => gcmService.notificationsToProcess ! false } //Finished loading notifications, allow websocket to close
+
 
   private def processHistoryEvents(notifications: Seq[PushNotification], fetchTime: Date) = {
     val events = notifications.flatMap(_.events)
