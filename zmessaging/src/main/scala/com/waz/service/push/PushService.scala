@@ -34,7 +34,7 @@ import com.waz.utils.events._
 
 import scala.concurrent.{Future, Promise}
 
-class PushService(context: Context, keyValue: KeyValueStorage, client: EventsClient, clientId: ClientId, signals: PushServiceSignals, pipeline: EventPipeline, webSocket: WebSocketClientService) { self =>
+class PushService(context: Context, keyValue: KeyValueStorage, client: EventsClient, clientId: ClientId, signals: PushServiceSignals, pipeline: EventPipeline, webSocket: WebSocketClientService, gcmService: GcmService) { self =>
   private implicit val dispatcher = new SerialDispatchQueue(name = "PushService")
   private implicit val tag: LogTag = logTagFor[PushService]
   private implicit val ec = EventContext.Global
@@ -52,6 +52,7 @@ class PushService(context: Context, keyValue: KeyValueStorage, client: EventsCli
     //      maybe this would be enough for some conversations and we would not need to sync so much
     processHistoryEvents(notifications.notifications, new Date)
 
+    gcmService.notificationsToProcess ! false //Finished retrieving notifications, allow websocket to close
     if (notifications.lastIdWasFound) debug("got missing notifications, great")
     else {
       info(s"server couldn't provide all missing notifications, will schedule slow sync, after processing available events")

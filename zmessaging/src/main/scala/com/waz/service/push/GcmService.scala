@@ -27,17 +27,19 @@ import com.waz.service.push.GcmGlobalService.GcmRegistration
 import com.waz.sync.SyncServiceHandle
 import com.waz.sync.client.{EventsClient, PushNotification}
 import com.waz.utils._
-import com.waz.utils.events.EventContext
+import com.waz.utils.events.{EventContext, Signal}
 import org.threeten.bp.Instant
 
 import scala.collection.breakOut
 import scala.concurrent.Future
 
-class GcmService(accountId: AccountId, gcmGlobalService: GcmGlobalService, keyVale: KeyValueStorage, convsContent: ConversationsContentUpdater, eventsClient: EventsClient, eventPipeline: EventPipeline, sync: SyncServiceHandle, lifecycle: ZmsLifecycle) {
+class GcmService(accountId: AccountId, val gcmGlobalService: GcmGlobalService, keyVale: KeyValueStorage, convsContent: ConversationsContentUpdater, eventsClient: EventsClient, eventPipeline: EventPipeline, sync: SyncServiceHandle, lifecycle: ZmsLifecycle) {
   import GcmService._
   implicit val dispatcher = gcmGlobalService.dispatcher
 
   private implicit val ev = EventContext.Global
+
+  val notificationsToProcess = Signal(false)
 
   val lastReceivedConvEventTime = keyVale.keyValuePref[Instant]("last_received_conv_event_time", Instant.EPOCH)
   val lastFetchedConvEventTime = keyVale.keyValuePref[Instant]("last_fetched_conv_event_time", Instant.ofEpochMilli(1))
@@ -47,10 +49,11 @@ class GcmService(accountId: AccountId, gcmGlobalService: GcmGlobalService, keyVa
 
   /**
     * Current GCM state, true if we are receiving notifications on it.
-    * We are only comparing timestamps of conversation events,
-    * considering events received on GCM and fetched by EventsClient.
-    * Events are fetched only on app start, when websocket is off (meaning GCM was considered active),
-    * this means that this state should rarely change.
+    * We are only comparing timestamps of conversation events, considering events received on GCM and fetched by EventsClient.
+    * Events are fetched only when web socket connects (meaning GCM was considered active), this means that this state should rarely change.
+    *
+    * GcmState will be active if the last received event is up-to-date or newer than the last fetched event, OR we have registered our GCM token since the
+    * last time we fetched a message (meaning we 'just registered')
     */
   val gcmState = for {
     lastFetched <- lastFetchedConvEventTime.signal
@@ -62,20 +65,20 @@ class GcmService(accountId: AccountId, gcmGlobalService: GcmGlobalService, keyVa
     GcmState(lastFetched <= lastReceived, localFetchTime <= lastRegistered)
   }
 
-  eventsClient.onNotificationsPageLoaded.on(dispatcher) { notifications =>
-    if (notifications.notifications.nonEmpty) {
-      val convEvents = notifications.notifications.flatMap(_.events).collect { case ce: ConversationEvent => ce }
-      Future.traverse(convEvents.groupBy(_.convId)) { case (convId, evs) =>
-        convsContent.convByRemoteId(convId) collect {
-          case Some(conv) if !conv.muted => evs.maxBy(_.time)
-        }
-      } foreach { evs =>
-        if (evs.nonEmpty) {
-          val last = evs.maxBy(_.time).time.instant
-          if (last != Instant.EPOCH) {
-            lastFetchedConvEventTime := last
-            lastFetchedLocalTime := Instant.now
-          }
+  eventsClient.onNotificationsPageLoaded.map(_.notifications.flatMap(_.events).collect{ case ce: ConversationEvent => ce })
+    .filter(_.nonEmpty).on(dispatcher) (updateFetchedTimes)
+
+  private def updateFetchedTimes(ces: Vector[ConversationEvent]) = {
+    Future.traverse(ces.groupBy(_.convId)) { case (convId, evs) =>
+      convsContent.convByRemoteId(convId) collect {
+        case Some(conv) if !conv.muted => evs.maxBy(_.time)
+      }
+    } foreach { evs =>
+      if (evs.nonEmpty) {
+        val last = evs.maxBy(_.time).time.instant
+        if (last != Instant.EPOCH) {
+          lastFetchedConvEventTime := last
+          lastFetchedLocalTime := Instant.now
         }
       }
     }
@@ -165,6 +168,7 @@ class GcmService(accountId: AccountId, gcmGlobalService: GcmGlobalService, keyVa
         // call state events can not be directly dispatched like the other events because they might be stale
         syncCallStateForConversations(callStateEvents.map(_.withCurrentLocalTime()))
 
+        notificationsToProcess ! true
         eventPipeline(otherEvents.map(_.withCurrentLocalTime()))
     }
   }
