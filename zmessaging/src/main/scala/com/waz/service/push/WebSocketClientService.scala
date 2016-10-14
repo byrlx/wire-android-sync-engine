@@ -49,7 +49,7 @@ class WebSocketClientService(context: Context, lifecycle: ZmsLifecycle, netClien
   //TODO bring back timing and reset in case GCM is broken
   // true if websocket should be active,
   val wsActive = lifecycleActive.flatMap {
-    case false if gcmService.gcmGlobalService.gcmAvailable => gcmService.notificationsToProcess //if there is a notification to be processed, open websocket
+    case false if gcmService.gcmAvailable => gcmService.notificationsToProcess //if there is a notification to be processed, open websocket
     case _ => Signal const true //Lifecycle active or no play services available, need web socket
   }
 

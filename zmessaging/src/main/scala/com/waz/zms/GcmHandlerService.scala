@@ -81,13 +81,13 @@ class GcmHandlerService extends FutureService with ZMessagingService {
     getNotification flatMap {
       case Some(EncryptedData(content, mac)) =>
         decryptNotification(content, mac) flatMap {
-          case Some((zms, notification)) => zms.gcm.handleNotification(notification)
+          case Some((zms, notification)) => zms.gcm.addNotificationToProcess(notification)
           case None => Future.successful(())
         }
       case Some(Unencrypted(notification, userId)) =>
         accounts.getCurrentZms flatMap {
           case Some(zms) if zms.selfUserId == userId =>
-            zms.gcm.handleNotification(notification)
+            zms.gcm.addNotificationToProcess(notification)
           case Some(zms) =>
             warn(s"received notification for wrong user: $extrasToString")
             Future.successful(())

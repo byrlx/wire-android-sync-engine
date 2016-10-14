@@ -17,8 +17,8 @@
  */
 package com.waz.service.push
 
-import com.waz.ZLog._
 import com.waz.ZLog.ImplicitTag._
+import com.waz.ZLog._
 import com.waz.content.KeyValueStorage
 import com.waz.model._
 import com.waz.service._
@@ -33,13 +33,16 @@ import org.threeten.bp.Instant
 import scala.collection.breakOut
 import scala.concurrent.Future
 
-class GcmService(accountId: AccountId, val gcmGlobalService: GcmGlobalService, keyVale: KeyValueStorage, convsContent: ConversationsContentUpdater, eventsClient: EventsClient, eventPipeline: EventPipeline, sync: SyncServiceHandle, lifecycle: ZmsLifecycle) {
+class GcmService(accountId: AccountId, gcmGlobalService: GcmGlobalService, keyVale: KeyValueStorage, convsContent: ConversationsContentUpdater,
+                 eventsClient: EventsClient, eventPipeline: EventPipeline, sync: SyncServiceHandle, lifecycle: ZmsLifecycle) {
   import GcmService._
   implicit val dispatcher = gcmGlobalService.dispatcher
 
   private implicit val ev = EventContext.Global
 
   val notificationsToProcess = Signal(false)
+
+  val gcmAvailable = gcmGlobalService.gcmAvailable
 
   val lastReceivedConvEventTime = keyVale.keyValuePref[Instant]("last_received_conv_event_time", Instant.EPOCH)
   val lastFetchedConvEventTime = keyVale.keyValuePref[Instant]("last_fetched_conv_event_time", Instant.ofEpochMilli(1))
@@ -154,8 +157,7 @@ class GcmService(accountId: AccountId, val gcmGlobalService: GcmGlobalService, k
       case None => Future.successful(None)
     }
 
-  def handleNotification(n: PushNotification): Future[Any] = {
-
+  def addNotificationToProcess(n: PushNotification): Future[Any] = {
     val time = n.lastConvEventTime
     if (time != Instant.EPOCH) lastReceivedConvEventTime := time
 
@@ -163,13 +165,9 @@ class GcmService(accountId: AccountId, val gcmGlobalService: GcmGlobalService, k
       case LifecycleState.UiActive | LifecycleState.Active => Future.successful(()) // no need to process GCM when ui is active
       case _ =>
         verbose(s"handleNotification($n")
-        val (callStateEvents, otherEvents) = n.events.partition(_.isInstanceOf[CallStateEvent])
-
         // call state events can not be directly dispatched like the other events because they might be stale
-        syncCallStateForConversations(callStateEvents.map(_.withCurrentLocalTime()))
-
-        notificationsToProcess ! true
-        eventPipeline(otherEvents.map(_.withCurrentLocalTime()))
+        syncCallStateForConversations(n.events.collect { case e: CallStateEvent => e }.map(_.withCurrentLocalTime()))
+        Future.successful(notificationsToProcess ! true)
     }
   }
 
