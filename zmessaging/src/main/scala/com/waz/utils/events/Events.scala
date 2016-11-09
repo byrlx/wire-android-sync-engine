@@ -17,45 +17,68 @@
  */
 package com.waz.utils.events
 
-import scala.concurrent.{Future, ExecutionContext}
-import scala.ref.WeakReference
 import com.waz.threading.Threading
 import com.waz.utils.{LoggedTry, returning}
 
-object Events {
-  type Subscriber[-E] = E => Unit
+import scala.concurrent.{ExecutionContext, Future}
+import scala.ref.WeakReference
 
+/**
+  * Events 代表了事件, 构成元素
+  * 1. Suscriber,是一个函数
+  * 2. 执行环境
+  * 3. 删除观察者
+  */
+object Events {
+  //这里定义了 Subscriber 就是一个函数, 函数接受一个 E 类型,并返回 Unit
+  //-E 表示 E 的父类
+  type Subscriber[-E] = E => Unit //type 就是 typedef
+
+  //执行环境, android的 mainthread 和后台
   def UiExecutionContext = Threading.Ui
+
   def BgExecutionContext = Threading.Background
 
+  //删除指定观察者, 并返回剩余的观察者集合
   def removeObserver[T <: AnyRef](xs: Vector[T], x: T): Vector[T] = {
     val (pre, post) = xs.span(_ ne x)
     if (post.isEmpty) pre else pre ++ post.tail
   }
 }
 
+//订阅类
 trait Subscription {
   def enable(): Unit
+
   def disable(): Unit
+
   def destroy(): Unit
+
   def disablePauseWithContext(): Unit
 
   def subscribe(): Unit
+
   def unsubscribe(): Unit
 }
 
+//这个 trait 会返回一个 Subscription
 trait EventSource[E] {
+  //并发的执行环境
   val executionContext = Option.empty[ExecutionContext]
 
   def on(ec: ExecutionContext)(subscriber: Events.Subscriber[E])(implicit context: EventContext): Subscription
+
   def apply(subscriber: Events.Subscriber[E])(implicit context: EventContext): Subscription
 }
 
 trait ForcedEventSource[E] extends EventSource[E] {
-  abstract override def on(ec: ExecutionContext)(subscriber: Events.Subscriber[E])(implicit context: EventContext): Subscription = returning(super.on(ec)(subscriber))(_.disablePauseWithContext())
+  abstract override def on(ec: ExecutionContext)(subscriber: Events.Subscriber[E])
+                          (implicit context: EventContext): Subscription = returning(super.on(ec)(subscriber))(_.disablePauseWithContext())
+
   abstract override def apply(subscriber: Events.Subscriber[E])(implicit context: EventContext): Subscription = returning(super.apply(subscriber))(_.disablePauseWithContext())
 }
 
+//整个代码都是构造函数
 abstract class BaseSubscription(context: WeakReference[EventContext]) extends Subscription {
   @volatile protected[events] var subscribed = false
   private var enabled = false
@@ -64,8 +87,10 @@ abstract class BaseSubscription(context: WeakReference[EventContext]) extends Su
   context.get foreach (_.register(this))
 
   protected[events] def onSubscribe(): Unit
+
   protected[events] def onUnsubscribe(): Unit
 
+  //被 context 的 register 调用
   def subscribe(): Unit =
     if (enabled && !subscribed) {
       subscribed = true
@@ -100,13 +125,19 @@ abstract class BaseSubscription(context: WeakReference[EventContext]) extends Su
   }
 }
 
-class SignalSubscription[E](source: Signal[E], subscriber: Events.Subscriber[E], executionContext: Option[ExecutionContext] = None)(implicit context: WeakReference[EventContext]) extends BaseSubscription(context) with SignalListener {
-  private def contextDiffersFrom(ctx: Option[ExecutionContext]) = executionContext.exists(ec => !ctx.orElse(source.executionContext).contains(ec))
+class SignalSubscription[E](source: Signal[E], subscriber: Events.Subscriber[E],
+                            executionContext: Option[ExecutionContext] = None)
+                           (implicit context: WeakReference[EventContext])
+  extends BaseSubscription(context) with SignalListener {
+  private def contextDiffersFrom(ctx: Option[ExecutionContext]) =
+    executionContext.exists(ec => !ctx.orElse(source.executionContext).contains(ec))
 
   override def changed(currentContext: Option[ExecutionContext]): Unit = synchronized {
     source.value foreach { event =>
       if (subscribed) {
-        if (contextDiffersFrom(currentContext)) Future(if (subscribed) LoggedTry(subscriber(event))("SignalSubscription"))(executionContext.get)
+        if (contextDiffersFrom(currentContext)) Future {
+          if (subscribed) LoggedTry(subscriber(event))("SignalSubscription")
+        }(executionContext.get)
         else subscriber(event)
       }
     }
@@ -120,7 +151,9 @@ class SignalSubscription[E](source: Signal[E], subscriber: Events.Subscriber[E],
   override protected[events] def onUnsubscribe(): Unit = source.unsubscribe(this)
 }
 
-class StreamSubscription[E](source: EventStream[E], subscriber: Events.Subscriber[E], executionContext: Option[ExecutionContext] = None)(implicit context: WeakReference[EventContext]) extends BaseSubscription(context) with EventListener[E] {
+class StreamSubscription[E](source: EventStream[E], subscriber: Events.Subscriber[E],
+                            executionContext: Option[ExecutionContext] = None)
+                           (implicit context: WeakReference[EventContext]) extends BaseSubscription(context) with EventListener[E] {
   private def contextDiffersFrom(ctx: Option[ExecutionContext]) = executionContext.exists(ec => !ctx.orElse(source.executionContext).contains(ec))
 
   override def onEvent(event: E, currentContext: Option[ExecutionContext]): Unit = {
@@ -135,10 +168,12 @@ class StreamSubscription[E](source: EventStream[E], subscriber: Events.Subscribe
   override protected[events] def onUnsubscribe(): Unit = source.unsubscribe(this)
 }
 
-trait BgEventSource { self: EventSource[_] =>
+trait BgEventSource {
+  self: EventSource[_] =>
   override val executionContext = Some(Events.BgExecutionContext)
 }
 
-trait UiEventSource { self: EventSource[_] =>
+trait UiEventSource {
+  self: EventSource[_] =>
   override val executionContext = Some(Events.UiExecutionContext)
 }

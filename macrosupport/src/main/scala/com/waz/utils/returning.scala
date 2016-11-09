@@ -20,6 +20,10 @@ package com.waz.utils
 import scala.language.experimental.macros
 import scala.reflect.macros.blackbox.Context
 
+/**
+  该实例返回一个 A 类型
+  接受
+ */
 object returning {
   def apply[A](init: A)(effects: A => Unit): A = macro KestrelMacro.apply[A]
 }
@@ -33,7 +37,9 @@ private object KestrelMacro {
     import c.universe._
     c.untypecheck(effects) match {
       case          Function(List(ValDef(_, t: TermName, _, EmptyTree)), b)  => q"val $t = $init; $b; $t"
+        //相当于, 
       case Block(p, Function(List(ValDef(_, t: TermName, _, EmptyTree)), b)) => q"val $t = $init; $p; $b; $t"
+        //相当于, 定义 x, 函数处理 x, 返回 x
       case _        /*  no inlining possible or necessary */                 => q"val x = $init; $effects(x); x"
     }
   }

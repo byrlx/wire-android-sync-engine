@@ -23,6 +23,7 @@ import android.util.Log
 
 import scala.annotation.tailrec
 
+//log 类, 实现上使用了 android 的 log 机制
 object ZLog {
   type LogTag = String
 

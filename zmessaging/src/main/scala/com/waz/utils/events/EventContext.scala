@@ -22,6 +22,12 @@ import android.view.View
 import com.waz.ZLog
 import com.waz.ZLog._
 
+/**
+  * EventContext 表示一种带有消息机制的上下文,
+  * 1. 当这个 context 建立时, 会调用所有 observer 的 subscribe()函数注册消息.
+  * 2. 当 context 停止时, 会调用所有观察者的 unsubscribe()函数.
+  * 3. 当 context 销毁时, 调用所有观察者的 destroy()函数, 并清空观察者.
+  */
 trait EventContext {
   private implicit val logTag: LogTag = logTagFor[EventContext]
 
@@ -91,6 +97,7 @@ object EventContext {
     implicit val global: EventContext = EventContext.Global
   }
 
+  //代表最顶层的 context ???
   object Global extends EventContext {
     override def register(observer: Subscription): Unit = () // do nothing, global context will never need the observers (can not be stopped)
     override def unregister(observer: Subscription): Unit = ()
@@ -101,6 +108,10 @@ object EventContext {
   }
 }
 
+/**
+  * Activity 的 context 实现, 实现了 EventContext 接口,
+  * 在 activity 的生命周期函数中调用了 EventContext 的周期接口
+  */
 trait ActivityEventContext extends Activity with EventContext {
 
   override def onResume(): Unit = {
@@ -119,6 +130,10 @@ trait ActivityEventContext extends Activity with EventContext {
   }
 }
 
+/**
+  * Fragment 的 context 实现, 实现了 EventContext 接口,
+  * 在 Fragment 的生命周期函数中调用了 EventContext 的周期接口
+  */
 trait FragmentEventContext extends Fragment with EventContext {
 
   override def onResume(): Unit = {
@@ -137,10 +152,15 @@ trait FragmentEventContext extends Fragment with EventContext {
   }
 }
 
+/**
+  * View 的 context 实现, 实现了 EventContext 接口,
+  * 在 View 的生命周期函数中调用了 EventContext 的周期接口
+  */
 trait ViewEventContext extends View with EventContext {
 
   private var attached = false
 
+  //view 被加载到 window 上 并可见时 调用 contextStart
   override def onAttachedToWindow(): Unit = {
     super.onAttachedToWindow()
 
@@ -163,6 +183,10 @@ trait ViewEventContext extends View with EventContext {
   }
 }
 
+/**
+  * Service 的 context 实现, 实现了 EventContext 接口,
+  * 在 Service 的生命周期函数中调用了 EventContext 的周期接口
+  */
 trait ServiceEventContext extends Service with EventContext {
 
   override def onCreate(): Unit = {

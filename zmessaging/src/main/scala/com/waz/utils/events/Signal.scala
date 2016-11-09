@@ -84,6 +84,9 @@ class SourceSignal[A](v: Option[A] = None) extends Signal(v) {
   def mutateOrDefault(f: A => A, default: A): Boolean = update(_.map(f).orElse(Some(default)))
 }
 
+/**
+  * signal 监听器
+  */
 trait SignalListener {
   // 'currentContext' is the context this method IS run in, NOT the context any subsequent methods SHOULD run in
   def changed(currentContext: Option[ExecutionContext]): Unit

@@ -28,10 +28,13 @@ import com.waz.utils.WakeLock
 
 import scala.concurrent.Future
 
+/**
+  * 一般情况下,开机后这个 service 会被启动, 然后在线程中执行 onIntent()函数
+ */
 abstract class FutureService extends Service {
   private implicit val logTag: LogTag = logTagFor[FutureService]
 
-  protected val wakeLockLevel = PowerManager.PARTIAL_WAKE_LOCK
+  protected val wakeLockLevel = PowerManager.PARTIAL_WAKE_LOCK //保持 cpu 运行
   protected lazy val wakeLock = new WakeLock(getApplicationContext, wakeLockLevel)
 
   override def onBind(intent: Intent): IBinder = null
